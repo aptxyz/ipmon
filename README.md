@@ -11,7 +11,7 @@ Installation
 1. Make sure your server has mySQL and php
 2. Make sure your router has jffs enable.
 3. Put index.php and index.htm on your server.
-4. Put index.startup on your router of /jffs/etc/config/
+4. Put ipmon.startup on your router of /jffs/etc/config/
 5. Change your variables
  * $routerIP, $resetD on index.php
  * ipmon.resetD on index.htm
