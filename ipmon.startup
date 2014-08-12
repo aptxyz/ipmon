@@ -1,0 +1,153 @@
+#!/bin/sh
+
+serverIP='192.168.0.2'
+serverPath='/ipmon/index.php'
+
+case ${1} in
+
+"start" )
+
+	if [ ! -f /tmp/IPMON.lock ]; then
+	
+		echo $$ > /tmp/IPMON.lock
+		./${0} router-setup &
+
+		while [ -f /tmp/IPMON.lock ] && grep $$ /tmp/IPMON.lock > /dev/null; do
+			./${0} update &
+			sleep 60  
+		done
+	else
+
+		echo lock file exist, use \"${0} stop\" first.
+
+	fi
+	;;
+	
+"stop" )
+
+	kill $(cat /tmp/IPMON.lock) > /dev/null
+	rm -f /tmp/IPMON.lock
+	rm -f /tmp/IPMON_*.tmp
+	exit
+	;;
+
+"router-setup" )
+
+	#Create the IPMON CHAIN (it doesn't matter if it already exists).
+	iptables -N IPMON 2> /dev/null
+
+	#Add the IPMON CHAIN to the FORWARD chain (if non existing).
+	iptables -L FORWARD --line-numbers -n | grep "IPMON" | grep "1" > /dev/null
+	if [ $? -ne 0 ]; then
+			iptables -L FORWARD -n | grep "IPMON" > /dev/null
+			if [ $? -eq 0 ]; then
+					echo "DEBUG : iptables chain misplaced, recreating it..."
+					iptables -D FORWARD -j IPMON
+			fi
+			iptables -I FORWARD -j IPMON
+	fi
+	;;
+
+"server-setup" )
+
+	echo 'Enter root password of mysql'
+
+	mysql -u root -p -e "
+			CREATE DATABASE IPMON;
+			USE IPMON;
+			CREATE TABLE mac (
+					id      tinyint unsigned NOT NULL AUTO_INCREMENT,
+					mac     char(17) NOT NULL UNIQUE,
+					ip      char(13),
+					name    varchar(256),
+					PRIMARY KEY (id)
+			);
+			CREATE TABLE daily (
+					macid   tinyint unsigned NOT NULL,
+					date    date NOT NULL,
+					up      bigint unsigned NOT NULL default 0,
+					down    bigint unsigned NOT NULL default 0,
+					PRIMARY KEY (macid, date)
+			);
+			CREATE TABLE monthly (
+					macid   tinyint unsigned NOT NULL,
+					date    char(4) NOT NULL,
+					up      bigint unsigned NOT NULL default 0,
+					down    bigint unsigned NOT NULL default 0,
+					PRIMARY KEY (macid, date)
+			);
+			CREATE USER 'IPMON'@'localhost' IDENTIFIED BY  'uNuKV3F7HHfTEu4T';
+			GRANT SELECT , INSERT , UPDATE ON  \`IPMON\` . * TO  'IPMON'@'localhost';
+			SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";
+			INSERT INTO \`IPMON\`.\`mac\` (\`id\`, \`mac\`, \`ip\`, \`name\`) VALUES ('0', '00:00:00:00:00:00', NULL, 'Everyone');
+	"
+
+	;;
+
+"update" )
+
+	if (arp | grep ${serverIP} > /dev/null); then
+
+		
+		LAN_IFACE=$(nvram get lan_ifname)
+
+		#For each host in the ARP table
+		grep ${LAN_IFACE} /proc/net/arp | while read IP TYPE FLAGS MAC MASK IFACE
+		do
+				#Add iptable rules (if non existing).
+				iptables -nL IPMON | grep "${IP} " > /dev/null
+				if [ $? -ne 0 ]; then
+						iptables -I IPMON -d ${IP} -j RETURN
+						iptables -I IPMON -s ${IP} -j RETURN
+				fi
+		done
+
+		#Read and reset counters
+		iptables -L IPMON -vnxZ -t filter > /tmp/IPMON_traffic.tmp
+		cat /dev/null > /tmp/IPMON_wget.tmp
+
+		cat /tmp/dnsmasq.leases | while read t MAC IP NAME MAC2;
+		do
+
+			echo 0 > /tmp/IPMON_down.tmp
+			echo 0 > /tmp/IPMON_up.tmp
+
+			grep ${IP} /tmp/IPMON_traffic.tmp | while read PKTS BYTES TARGET PROT OPT IFIN IFOUT SRC DST
+			do
+				[ "${DST}" = "${IP}" ] && echo ${BYTES} > /tmp/IPMON_down.tmp
+				[ "${SRC}" = "${IP}" ] && echo ${BYTES} > /tmp/IPMON_up.tmp
+			done
+
+			DOWN=$(cat /tmp/IPMON_down.tmp)
+			UP=$(cat /tmp/IPMON_up.tmp)
+			
+			if [ ${DOWN} -gt 0 -o ${UP} -gt 0 ];  then
+				LIST=\"${MAC}\",\"${NAME}\",\"${IP}\",${DOWN},${UP}
+				echo \[${LIST}\] >> /tmp/IPMON_wget.tmp
+			fi
+			
+		done
+
+		while read line
+		do
+				data=$data$line,
+		done < /tmp/IPMON_wget.tmp
+
+		data=\[${data%?}\]
+
+		wget http://${serverIP}${serverPath}?insert=${data} -O /dev/null 2> /dev/null
+	
+	fi
+	;;
+
+*)
+	IP=$(hostname -i)
+	if [ ${IP} == ${serverIP} ]; then
+		echo "Usage : $0 {start|stop|router-setup|server-setup|update}"
+	else
+		./${0} start &
+	fi
+	exit
+	;;
+	
+esac
