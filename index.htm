@@ -63,30 +63,97 @@
 	<script>
 
 		var ipmon = {};
-		ipmon.resetD = 24;  // Bandwidth Cycle Start on # of Every Month
+        var a = console.log;
+		ipmon.resetD = 26;  // Bandwidth Cycle Start on # of Every Month
 		
-		ipmon.b2s = function(bytes) {
-			var sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+		ipmon.b2s = function(bytes,mode2) {
 			if (bytes == 0) return 0;
 			var i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-			return Math.round(bytes / Math.pow(1024, i) * 10) / 10 + ' ' + sizes[i];
+			if (mode2) return Math.round(bytes / Math.pow(1024, i)) + ['b', 'k', 'm', 'g', 't', 'p'][i];
+			return Math.round(bytes / Math.pow(1024, i) * 10) / 10 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB', 'PB'][i];
 		};
 		ipmon.pad = function(n) {
  		   return (n < 10) ? ("0" + n) : n;
 		};
-		ipmon.daily = function(onMonth) {
+		ipmon.subinfo = function(info) {
+			var subinfo = '';
+			for (var i = 0; i < info.length; i++) {
+				var item = info[i];
+				subinfo += item.name + ': <b style="color: rgba(255,0,0,0.5)">' + ipmon.b2s(item.bandwidth,true) + '</b><br />'
+			
+			};
+			return subinfo;
+		};
+		ipmon.sum = function(item) {
+	
+			var sum = 0;
+			for (prop in item) {
+			
+				sum += item[prop];
+			
+			};
+			return sum;
+		
+		};
+		ipmon.cObj = function(item1, item2) {
+	
+			var item = {};
+			for (var prop in item1) {
+				item[prop] = item1[prop] + item2[prop];
+			};
+			return item;
+		
+		};
+		ipmon.cAry = function(item1, item2) {
+	
+			var item = [];
+			for (var i = 0; i < item1.length; i++) {
+				item[i] = item1[i] + item2[i];
+			};
+			return item;
+		
+		};
+
+		ipmon.month = function(onMonth) {
 		
 			var resetD = ipmon.resetD;
+            var day = Number( Date.today().toString('dd') );
+            var today = Date.today();
+            var month, i , f;
+            
+            if (resetD <= 15) {
+                
+                if (onMonth)                   {month = Date.parse(onMonth + '-01', 'yyyy-MM-dd'); }
+                else if (day >= resetD)       {month = today.clone().moveToFirstDayOfMonth();}
+                else                           {month = today.clone().add(-1).months().moveToFirstDayOfMonth();}
+                
+                i = month.clone().add( resetD - 1 ).days();
+                
+            } else {
+            
+                if (onMonth)                   {month = Date.parse(onMonth + '-01', 'yyyy-MM-dd');}
+                else if (day >= resetD)       {month = today.clone().add(1).months().moveToFirstDayOfMonth();}
+                else                           {month = today.clone().moveToFirstDayOfMonth();}
+                
+                i = month.clone().add(-1).months().add( resetD - 1).days();
+            
+            };
+            
+            f = i.clone().add(1).months().add(-1).days();
 
-			if (onMonth)	{ onMonth = Date.parse(onMonth + '-' + '01', 'yyyy-MM-dd'); }
-			else	 		{ onMonth = new Date().add( - ( resetD - 1 )).days().moveToFirstDayOfMonth(); }
-
-			var month = onMonth.clone().toString('yyyy MMM');
-			var i = onMonth.clone().add( resetD - 1 ).days();
-			var f = onMonth.clone().add(1).months().add( resetD - 2 ).days();
-
-			var dates = [i,f];
-			
+            // when resetD is 28/29/30/31, Quick fixed for Feb 27 to Feb 28
+            if (    
+                    Date.compare( f.clone().add(1).days(), f.clone().moveToLastDayOfMonth() ) === 0 
+                    && 
+                    resetD > Number( f.clone().moveToLastDayOfMonth().toString('dd') )
+            ) {
+            
+                f = f.moveToLastDayOfMonth();
+                
+            };
+            
+            var dates = [i,f];
+            
 			while (true) {
 
 				var temp = dates[dates.length-2].clone().add(1).days();
@@ -100,48 +167,21 @@
 										 }
 				
 			};
+            
+            
 
-			ipmon.select('daily',dates, month);
-			ipmon.resetLink(onMonth, onMonth.clone().toString('MMM'));
-
-		};
-		ipmon.monthly = function(onYear) {
-		
-			var resetD = ipmon.resetD;
-
-			if (onYear)		{ onYear = Date.parse(onYear + '-01-01', 'yyyy-MM-dd'); }
-			else	 		{ onYear = new Date().add( - ( resetD - 1 )).days() }
-
-			var year = onYear.clone().toString('yyyy');
-			var y = onYear.clone().toString('yy');
-
-			var dates = [];
-			
-			for (var i = 1; i <= 12; i++) {
-			
-				dates.push(y + ipmon.pad(i));
-			
-			};
-
-			ipmon.select('monthly',dates, year);
-			ipmon.resetLink(onYear,year);
-		
-		};
-		ipmon.select = function(table, dates, title) {
-		
-			$.getJSON('index.php', {select: table, i: dates[0], f: dates[dates.length-1]}, function(result) {
-				
-				var data = result.data;
+            ipmon.resetLink(month, month.clone().toString('MMM'));
+            
+			$.getJSON('index.php', {select: 'month', i: dates[0], f: dates[dates.length-1]}, function(result) {
+            
+                var data = result.data;
 				var mac = JSON.parse(result.mac);
-				var highchartDatas = [];
+				var rawDatas = [];
 				var total = 0;
-
-				
+                
 				for (var i = 0; i < mac.length; i++) {
 				
 					var user = mac[i];
-					// ['00:00:00:00:00:00','192.168.0.255','device name'
-					
 					var macid = i;
 					var macstring = user[0];
 					var ip = user[1];
@@ -152,26 +192,14 @@
 						macstring = '';
 					};
 					
-
-
 					var bandwidths = [];
 					var ups = {};
 					var downs = {};
 					
-					
-
 					for (var j = 0; j < dates.length; j++) {
 					
 						var columnName = dates[j];
-						
-						if (columnName.length == 10) {
-							var xAxis = columnName.substring(5);
-						} else if (columnName.length == 4) {
-// 							var tempName = '20' + columnName
-							var m = '20' + columnName.substring(0,2) + '-' + columnName.substring(2);
-							var xAxis = Date.parse(m,'yyyy-MM').toString('yyyy MMM');
-						};
-						
+						var xAxis = Date.parse(columnName, 'yyyy-MM-dd').toString('M-d');
 						
 						if (data && data[columnName]) {
 						
@@ -180,7 +208,6 @@
 							for (var k = 0; k < column.length; k++) {
 
 								var columnUser = column[k];
-								// columnUser = [15,2978324,167262665]
 								
 								var cid = columnUser[0];
 								var up = Number(columnUser[1]);
@@ -192,7 +219,7 @@
 									ups[xAxis] = up;
 									downs[xAxis] = down;
 									bandwidths.push(bandwidth);
-									if (macid != 0) total += bandwidth;
+									if (macid == 0) total += bandwidth;
 									
 									break;
 									
@@ -210,47 +237,693 @@
 							
 						};
 						
-
 					};
 
-					var item = {
+					if (macid === 0) continue;
+						
+					rawDatas.push({
 						mac: macstring,
 						ip: ip,
 						name: name,
 						ups: ups,
 						downs: downs,
 						data: bandwidths,
-					};
-					
-					// ignore item with zero bandwidth
-					for (var j = 0; j < bandwidths.length; j++) {
-						
-						if (bandwidths[j] > 0) {
-							if (macid != 0) highchartDatas.push(item);
-							break;
-						};
-						
-					};
+					});
 
 				};
 				for (var i = 0; i < dates.length; i++) {
 					
 					if (dates[i].length == 10) {
-						dates[i] = dates[i].substring(5);
+						dates[i] = Date.parse(dates[i], 'yyyy-MM-dd').toString('M-d');;
 					} else if (dates[i].length == 4) {
 						var m = '20' + dates[i].substring(0,2) + '-' + dates[i].substring(2);
 						dates[i] = Date.parse(m,'yyyy-MM').toString('yyyy MMM');
 					};
 					
 				};
-				if (!highchartDatas.length) {
 				
+				var highchartDatas = [];
+				var other = {
+					name: 'other',
+					info: [],
+					ups: undefined,
+					downs: undefined,
+					data: undefined,
+				};
+				
+				if (!total) {
+					
 					var emptyData = [];
 					for (var i = 0; i < dates.length; i++) {emptyData.push(0);};
 					highchartDatas.push({
 						name: 'no data',
 						data: emptyData
 					});
+					
+				}
+				else {
+				
+					var sum = ipmon.sum;
+					var cObj = ipmon.cObj;
+					var cAry = ipmon.cAry;
+								
+					for (var i = 0; i < rawDatas.length; i++) {
+					
+						var item = rawDatas[i];
+						var name = item.name;
+						var ups = item.ups; 
+						var downs = item.downs; 
+						var bandwidth = sum(ups) + sum(downs);
+						var data = item.data;
+						
+						if ( bandwidth / total < 1 / 100 ) {
+						
+							other.info.push({
+								name: name,
+								bandwidth: cObj(ups, downs)
+							});
+							other.ups = (other.ups ? cObj(other.ups, ups) : ups);
+							other.downs = (other.downs ? cObj(other.downs, downs) : downs);
+							other.data = (other.data ? cAry(other.data, data) : data);
+						
+						}
+						else {
+						
+							highchartDatas.push(item)
+							
+						};
+						
+					};
+					
+				};
+				
+				highchartDatas.sort(function(a,b) {
+					
+					if (b.name > a.name) return -1;
+					if (a.name > b.name) return  1;
+										  return  0;
+					
+				});
+				if (other.info.length) {
+				
+					highchartDatas.push(other);
+					
+				};
+				
+				$('#ipmon').highcharts({
+					chart: {
+						type: 'column',
+					},
+					title: {
+						text: month.toString('yyyy MMM') + (total ? ' (' + ipmon.b2s(total) + ')': '')
+					},
+					xAxis: {
+						categories: dates,
+						labels: {
+							rotation: -30,
+							x: 10,
+							style: {
+								fontSize: '9px',
+							},
+						},
+					},
+					yAxis: {
+						min: 0,
+						title: {
+							text: ''
+						},
+						stackLabels: {
+							enabled: false,
+							style: {
+								fontWeight: 'bold',
+								color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+							}
+						}
+					},
+					legend: {
+						align: 'right',
+						verticalAlign: 'middle',
+						layout: "vertical",
+						enabled: true,
+						width: 250,
+						backgroundColor: (Highcharts.theme && Highcharts.theme.background2) || 'white',
+						borderColor: '#CCC',
+						borderWidth: 1,
+						shadow: false
+					},
+					tooltip: {
+						useHTML: true,
+						formatter: function() {
+						
+							var s = this.series.userOptions;
+							
+							var x = this.x;
+							var t = ipmon.b2s(this.y);
+							var u = ipmon.b2s(s.ups[x]);
+							var d = ipmon.b2s(s.downs[x]);
+							var subinfo = '';
+							
+							if (s.name == 'other') {
+								
+								s.info.sort(function(a,b) {
+									return b.bandwidth[x] - a.bandwidth[x];
+								});
+								for (var i = 0; i < s.info.length; i++) {
+									var item = s.info[i];
+									var bw = ipmon.b2s(item.bandwidth[x],true);
+									if (bw) subinfo += item.name + ': <b style="color: rgba(255,0,0,0.5)">' + bw + '</b><br />';
+								};
+								
+							}
+							else {
+							
+								subinfo = s.ip + '<br />' +  s.mac;
+								
+							};
+							
+							return '<b>' + s.name + '</b>' + '<br />' +
+									'<div style="margin-bottom: 5px; font-size: 8.5px;">' +
+										subinfo +
+									'</div>' +
+									
+									'up: ' + u + '<br />' +
+									'down: ' + d + '<br />'+
+									'<b style="color: red; top: 0px">' + t + '</b>';
+								
+						}
+					},
+					plotOptions: {
+						column: {
+							stacking: 'normal',
+							dataLabels: {
+								enabled: false,
+								color: (Highcharts.theme && Highcharts.theme.dataLabelsColor) || 'white',
+								style: {
+									textShadow: '0 0 3px black, 0 0 3px black'
+								}
+							}
+						}
+					},
+					series: highchartDatas
+				});
+
+			});
+
+		};
+		ipmon.year = function(year) {
+		
+			var resetD = ipmon.resetD;
+            resetD = 13;
+            
+            // year
+            if ( resetD > 15 && Date.today().isAfter( Date.parse( Date.today().toString('yyyy') + '-12-15','yyyy-MM-dd') ) ) {
+                year = year || Date.today().add(1).years().toString('yyyy');
+            } else {
+                year = year || Date.today().toString('yyyy');
+            };
+            
+            
+            var dates = [];
+            for (var j = 1; j <= 12; j++) {
+                
+                var month, i, f;
+                
+                // month 
+                month = Date.parse(year + '-' + j + '-01', 'yyyy-MM-dd').toString('MM');
+                
+                // i
+                if ( resetD <= 15) {
+                
+                    i = Date.parse(year + '-' + j + '-' + resetD, 'yyyy-MM-dd');
+                
+                }else {
+                
+                    var y = j === 1 ? year - 1: year;
+                    var m = j === 1 ? 12 : j - 1;
+                    
+                    var firstDay = Date.parse( y + '-' + ipmon.pad(m) + '-01', 'yyyy-MM-dd');
+                    var lastDay = firstDay.clone().moveToLastDayOfMonth();
+                    var checkDate = firstDay.clone().add(resetD - 1).days();
+                    
+                    if ( Date.compare(checkDate, lastDay) === 1 ) {
+                        i = checkDate.clone().moveToFirstDayOfMonth();
+                    } else {
+                        i = checkDate;
+                    };
+                    
+                }
+                
+                // f
+                if ( resetD === 1 )  {
+                    
+                    f = i.clone().moveToLastDayOfMonth();
+                    
+                } else if ( resetD <= 15 ) {
+                
+                    var y = j < 12 ? year : Number(year) + 1;
+                    var m = j < 12 ? j + 1 : 1;
+                    var d = resetD - 1;
+                    
+                    f = Date.parse(y + '-' + m + '-' + d, 'yyyy-MM-dd');
+                
+                } else {
+                    
+                    f = Date.parse(year + '-' + j + '-' + (resetD - 1), 'yyyy-MM-dd');
+                    f = f || Date.parse(year + '-' + j + '-01', 'yyyy-MM-dd').moveToLastDayOfMonth();
+                    
+                };
+                
+                dates.push([month, i.toString('yyyy-MM-dd'), f.toString('yyyy-MM-dd')]);
+                
+            };
+
+			ipmon.resetLink( Date.parse(year+'-01-01', 'yyyy-MM-dd'), year );
+            
+			$.getJSON('index.php', {select: 'year', dates: dates}, function(result) {
+				
+				var data = result.data;
+				var mac = JSON.parse(result.mac);
+				var rawDatas = [];
+				var total = 0;
+
+				for (var i = 0; i < mac.length; i++) {
+				
+					var user = mac[i];
+					var macid = i;
+					var macstring = user[0];
+					var ip = user[1];
+					var name = user[2];
+					
+					if (name == '*') {
+						name = macstring;
+						macstring = '';
+					};
+					
+					var bandwidths = [];
+					var ups = {};
+					var downs = {};
+                    
+					for (var j = 0; j < dates.length; j++) {
+					
+                        var columnName = dates[j][0];
+                        var xAxis = Date.parse(y+'-'+columnName,'yyyy-MM').toString('MMM');
+						
+						if (data && data[columnName]) {
+						
+							var column = data[columnName];
+							
+							for (var k = 0; k < column.length; k++) {
+
+								var columnUser = column[k];
+								
+								var cid = columnUser[0];
+								var up = Number(columnUser[1]);
+								var down = Number(columnUser[2]);
+								var bandwidth = up + down;
+							
+								if (macid == cid) {
+									
+									ups[xAxis] = up;
+									downs[xAxis] = down;
+									bandwidths.push(bandwidth);
+									if (macid == 0) total += bandwidth;
+									
+									break;
+									
+								};
+								
+							};
+							
+						};
+						
+						if (bandwidths[j] == undefined) {
+							
+							ups[xAxis] = 0;
+							downs[xAxis] = 0;
+							bandwidths.push(0);
+							
+						};
+						
+					};
+
+					if (macid === 0) continue;
+						
+					rawDatas.push({
+						mac: macstring,
+						ip: ip,
+						name: name,
+						ups: ups,
+						downs: downs,
+						data: bandwidths,
+					});
+
+				};
+				for (var i = 0; i < dates.length; i++) {
+					
+					if (dates[i].length == 10) {
+						dates[i] = Date.parse(dates[i], 'yyyy-MM-dd').toString('M-d');;
+					} else if (dates[i].length == 4) {
+						var m = '20' + dates[i].substring(0,2) + '-' + dates[i].substring(2);
+						dates[i] = Date.parse(m,'yyyy-MM').toString('yyyy MMM');
+					};
+					
+				};
+				
+				var highchartDatas = [];
+				var other = {
+					name: 'other',
+					info: [],
+					ups: undefined,
+					downs: undefined,
+					data: undefined,
+				};
+				
+				if (!total) {
+					
+					var emptyData = [];
+					for (var i = 0; i < dates.length; i++) {emptyData.push(0);};
+					highchartDatas.push({
+						name: 'no data',
+						data: emptyData
+					});
+					
+				}
+				else {
+				
+					var sum = ipmon.sum;
+					var cObj = ipmon.cObj;
+					var cAry = ipmon.cAry;
+								
+					for (var i = 0; i < rawDatas.length; i++) {
+					
+						var item = rawDatas[i];
+						var name = item.name;
+						var ups = item.ups; 
+						var downs = item.downs; 
+						var bandwidth = sum(ups) + sum(downs);
+						var data = item.data;
+						
+						if ( bandwidth / total < 1 / 100 ) {
+						
+							other.info.push({
+								name: name,
+								bandwidth: cObj(ups, downs)
+							});
+							other.ups = (other.ups ? cObj(other.ups, ups) : ups);
+							other.downs = (other.downs ? cObj(other.downs, downs) : downs);
+							other.data = (other.data ? cAry(other.data, data) : data);
+						
+						}
+						else {
+						
+							highchartDatas.push(item)
+							
+						};
+						
+					};
+					
+				};
+				
+				highchartDatas.sort(function(a,b) {
+					
+					if (b.name > a.name) return -1;
+					if (a.name > b.name) return  1;
+										  return  0;
+					
+				});
+				if (other.info.length) {
+				
+					highchartDatas.push(other);
+					
+				};
+                
+                console.log(highchartDatas);
+				
+                
+				$('#ipmon').highcharts({
+					chart: {
+						type: 'column',
+					},
+					title: {
+						text: year + (total ? ' (' + ipmon.b2s(total) + ')': '')
+					},
+					xAxis: {
+						categories: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+						labels: {
+							style: {
+								fontSize: '11px',
+							},
+						},
+					},
+					yAxis: {
+						min: 0,
+						title: {
+							text: ''
+						},
+						stackLabels: {
+							enabled: false,
+							style: {
+								fontWeight: 'bold',
+								color: (Highcharts.theme && Highcharts.theme.textColor) || 'gray'
+							}
+						}
+					},
+					legend: {
+						align: 'right',
+						verticalAlign: 'middle',
+						layout: "vertical",
+						enabled: true,
+						width: 250,
+						backgroundColor: (Highcharts.theme && Highcharts.theme.background2) || 'white',
+						borderColor: '#CCC',
+						borderWidth: 1,
+						shadow: false
+					},
+					tooltip: {
+						useHTML: true,
+						formatter: function() {
+						
+							var s = this.series.userOptions;
+							
+							var x = this.x;
+							var t = ipmon.b2s(this.y);
+							var u = ipmon.b2s(s.ups[x]);
+							var d = ipmon.b2s(s.downs[x]);
+							var subinfo = '';
+							
+							if (s.name == 'other') {
+								
+								s.info.sort(function(a,b) {
+									return b.bandwidth[x] - a.bandwidth[x];
+								});
+								for (var i = 0; i < s.info.length; i++) {
+									var item = s.info[i];
+									var bw = ipmon.b2s(item.bandwidth[x],true);
+									if (bw) subinfo += item.name + ': <b style="color: rgba(255,0,0,0.5)">' + bw + '</b><br />';
+								};
+								
+							}
+							else {
+							
+								subinfo = s.ip + '<br />' +  s.mac;
+								
+							};
+							
+							return '<b>' + s.name + '</b>' + '<br />' +
+									'<div style="margin-bottom: 5px; font-size: 8.5px;">' +
+										subinfo +
+									'</div>' +
+									
+									'up: ' + u + '<br />' +
+									'down: ' + d + '<br />'+
+									'<b style="color: red; top: 0px">' + t + '</b>';
+								
+						}
+					},
+					plotOptions: {
+						column: {
+							stacking: 'normal',
+							dataLabels: {
+								enabled: false,
+								color: (Highcharts.theme && Highcharts.theme.dataLabelsColor) || 'white',
+								style: {
+									textShadow: '0 0 3px black, 0 0 3px black'
+								}
+							}
+						}
+					},
+					series: highchartDatas
+				});
+
+			});
+
+		
+		};
+		ipmon.select = function(table, dates, title) {
+		
+			$.getJSON('index.php', {select: table, i: dates[0], f: dates[dates.length-1]}, function(result) {
+				
+				var data = result.data;
+				var mac = JSON.parse(result.mac);
+				var rawDatas = [];
+				var total = 0;
+
+				for (var i = 0; i < mac.length; i++) {
+				
+					var user = mac[i];
+					var macid = i;
+					var macstring = user[0];
+					var ip = user[1];
+					var name = user[2];
+					
+					if (name == '*') {
+						name = macstring;
+						macstring = '';
+					};
+					
+					var bandwidths = [];
+					var ups = {};
+					var downs = {};
+					
+					for (var j = 0; j < dates.length; j++) {
+					
+						var columnName = dates[j];
+						
+						if (table == 'daily') {
+							var xAxis = Date.parse(columnName, 'yyyy-MM-dd').toString('M-d');
+						}
+						else if (table == 'monthly') {
+							var m = '20' + columnName.substring(0,2) + '-' + columnName.substring(2);
+							var xAxis = Date.parse(m,'yyyy-MM').toString('yyyy MMM');
+						};
+						
+						if (data && data[columnName]) {
+						
+							var column = data[columnName];
+							
+							for (var k = 0; k < column.length; k++) {
+
+								var columnUser = column[k];
+								
+								var cid = columnUser[0];
+								var up = Number(columnUser[1]);
+								var down = Number(columnUser[2]);
+								var bandwidth = up + down;
+							
+								if (macid == cid) {
+									
+									ups[xAxis] = up;
+									downs[xAxis] = down;
+									bandwidths.push(bandwidth);
+									if (macid == 0) total += bandwidth;
+									
+									break;
+									
+								};
+								
+							};
+							
+						};
+						
+						if (bandwidths[j] == undefined) {
+							
+							ups[xAxis] = 0;
+							downs[xAxis] = 0;
+							bandwidths.push(0);
+							
+						};
+						
+					};
+
+					if (macid === 0) continue;
+						
+					rawDatas.push({
+						mac: macstring,
+						ip: ip,
+						name: name,
+						ups: ups,
+						downs: downs,
+						data: bandwidths,
+					});
+
+				};
+				for (var i = 0; i < dates.length; i++) {
+					
+					if (dates[i].length == 10) {
+						dates[i] = Date.parse(dates[i], 'yyyy-MM-dd').toString('M-d');;
+					} else if (dates[i].length == 4) {
+						var m = '20' + dates[i].substring(0,2) + '-' + dates[i].substring(2);
+						dates[i] = Date.parse(m,'yyyy-MM').toString('yyyy MMM');
+					};
+					
+				};
+				
+				var highchartDatas = [];
+				var other = {
+					name: 'other',
+					info: [],
+					ups: undefined,
+					downs: undefined,
+					data: undefined,
+				};
+				
+				if (!total) {
+					
+					var emptyData = [];
+					for (var i = 0; i < dates.length; i++) {emptyData.push(0);};
+					highchartDatas.push({
+						name: 'no data',
+						data: emptyData
+					});
+					
+				}
+				else {
+				
+					var sum = ipmon.sum;
+					var cObj = ipmon.cObj;
+					var cAry = ipmon.cAry;
+								
+					for (var i = 0; i < rawDatas.length; i++) {
+					
+						var item = rawDatas[i];
+						var name = item.name;
+						var ups = item.ups; 
+						var downs = item.downs; 
+						var bandwidth = sum(ups) + sum(downs);
+						var data = item.data;
+						
+						if ( bandwidth / total < 1 / 100 ) {
+						
+							other.info.push({
+								name: name,
+								bandwidth: cObj(ups, downs)
+							});
+							other.ups = (other.ups ? cObj(other.ups, ups) : ups);
+							other.downs = (other.downs ? cObj(other.downs, downs) : downs);
+							other.data = (other.data ? cAry(other.data, data) : data);
+						
+						}
+						else {
+						
+							highchartDatas.push(item)
+							
+						};
+						
+					};
+					
+				};
+				
+				highchartDatas.sort(function(a,b) {
+					
+					if (b.name > a.name) return -1;
+					if (a.name > b.name) return  1;
+										  return  0;
+					
+				});
+				if (other.info.length) {
+				
+					highchartDatas.push(other);
+					
 				};
 				
 				$('#ipmon').highcharts({
@@ -262,7 +935,6 @@
 					},
 					xAxis: {
 						categories: dates,
-						// type: 'category',
 						labels: {
 							rotation: (table == 'daily' ? -30 : 0 ) ,
 							x: (table == 'daily' ? 10 : 0 ),
@@ -301,20 +973,38 @@
 						
 							var s = this.series.userOptions;
 							
+							var x = this.x;
 							var t = ipmon.b2s(this.y);
-							var u = ipmon.b2s(s.ups[this.x]);
-							var d = ipmon.b2s(s.downs[this.x]);
+							var u = ipmon.b2s(s.ups[x]);
+							var d = ipmon.b2s(s.downs[x]);
+							var subinfo = '';
 							
+							if (s.name == 'other') {
+								
+								s.info.sort(function(a,b) {
+									return b.bandwidth[x] - a.bandwidth[x];
+								});
+								for (var i = 0; i < s.info.length; i++) {
+									var item = s.info[i];
+									var bw = ipmon.b2s(item.bandwidth[x],true);
+									if (bw) subinfo += item.name + ': <b style="color: rgba(255,0,0,0.5)">' + bw + '</b><br />';
+								};
+								
+							}
+							else {
 							
+								subinfo = s.ip + '<br />' +  s.mac;
+								
+							};
 							
-								return '<b>' + s.name + '</b>' + '<br />' +
-										'<div style="margin-bottom: 5px; font-size: 8.5px;">' +
-											s.ip + '<br />' +  s.mac +
-										'</div>' +
-										
-										'up: ' + u + '<br />' +
-										'down: ' + d + '<br />'+
-										'<b style="color: red; top: 0px">' + t + '</b>';
+							return '<b>' + s.name + '</b>' + '<br />' +
+									'<div style="margin-bottom: 5px; font-size: 8.5px;">' +
+										subinfo +
+									'</div>' +
+									
+									'up: ' + u + '<br />' +
+									'down: ' + d + '<br />'+
+									'<b style="color: red; top: 0px">' + t + '</b>';
 								
 						}
 					},
@@ -333,10 +1023,8 @@
 					series: highchartDatas
 				});
 
-				
 			});
 
-	
 		};
 		ipmon.total = function() {
 		
@@ -344,15 +1032,10 @@
 
 			$.getJSON('index.php', {select: 'total'}, function(data) {
 				
-				
-				
 				var highchartDatas = [];
-				
-				
-				
 				var other = {
 					name: 'other',
-					names: [],
+					info: [],
 					up: 0,
 					down: 0,
 					y: 0,
@@ -361,14 +1044,12 @@
 				for (var i = 0; i < data.length; i++) {
 					
 					var user = data[i];
-					// user = ['mac','ip','name','up','down'];
 					var mac = user[0];
 					var ip = user[1];
 					var name = user[2];
 					var up = Number(user[3]);
 					var down = Number(user[4]);
 					var bandwidth = up + down;
-					
 					
 					if (name == 'Everyone') {
 						var totalUp = up;
@@ -383,8 +1064,7 @@
 					
 					};
 					
-					
-					if (bandwidth / total > 0.01) {
+					if (bandwidth / total > 1 / 100) {
 					
 						highchartDatas.push({
 							name: name,
@@ -397,7 +1077,10 @@
 					
 					} else {
 					
-						other.names.push(name);
+						other.info.push({
+							name: name,
+							bandwidth: bandwidth
+						});
 						other.up += up;
 						other.down += down;
 						other.y += bandwidth
@@ -406,20 +1089,25 @@
 					
 				};
 				
-				other.names.sort();
-				highchartDatas.push(other);
-				
-				
+				if (other.y) {
+					other.info.sort(function(a,b) {
+					
+						return b.bandwidth - a.bandwidth;
+					
+					});
+					highchartDatas.push(other);
+					console.log(other);
+				};
 				
 				$('#ipmon').highcharts({
-						chart: {
-							plotBackgroundColor: null,
-							plotBorderWidth: 1,//null,
-							plotShadow: false,
-						},
-						title: {
-							text: 'All Time (' + ipmon.b2s(total) + ')'
-						},
+					chart: {
+						plotBackgroundColor: null,
+						plotBorderWidth: 1,//null,
+						plotShadow: false,
+					},
+					title: {
+						text: 'All Time (' + ipmon.b2s(total) + ')'
+					},
 					tooltip: {
 						useHTML: true,
 						formatter: function() {
@@ -432,15 +1120,23 @@
 							var up = ipmon.b2s(p.up);
 							var down = ipmon.b2s(p.down);
 							var total = ipmon.b2s(this.y);
+							var subinfo = '';
 							
-							var subinfo;
 							if (name == 'other') {
 							
-								subinfo = p.names.join('<br />');
+								var info = p.info;
+								
+								for (var i = 0; i < info.length; i++) {
+									var item = info[i];
+									subinfo += item.name + ': <b style="color: rgba(255,0,0,0.5)">' + ipmon.b2s(item.bandwidth,true) + '</b><br />'
+								
+								};
 							
 							}
 							else {
+							
 								subinfo = ip + '<br />' +  mac;
+
 							};
 
 							
@@ -465,90 +1161,73 @@
 								// 'Total: '+ this.point.stackTotal;
 						}
 					},
-						plotOptions: {
-							pie: {
-								allowPointSelect: true,
-								cursor: 'pointer',
-								dataLabels: {
-									enabled: true,
-									formatter: function() {
-										return '<b>' + this.point.name + '</b>: ' + ipmon.b2s(this.y);
-									},
-									style: {
-										color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
-									}
+					plotOptions: {
+						pie: {
+							allowPointSelect: true,
+							cursor: 'pointer',
+							dataLabels: {
+								enabled: true,
+								formatter: function() {
+									return '<b>' + this.point.name + '</b>: ' + ipmon.b2s(this.y);
 								},
-							}
-						},
-						series: [{
-							type: 'pie',
-							// name: 'All Time',
-							data: highchartDatas
-						}]
-					});
-					
-
-			
+								style: {
+									color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+								}
+							},
+						}
+					},
+					series: [{
+						type: 'pie',
+						// name: 'All Time',
+						data: highchartDatas
+					}]
+				});
+				
 			});
 			
 		};
 		ipmon.resetLink = function(time, selected) {
-		
-			var nav = $('nav');
-			
-			$('nav').empty();
-			$('#ipmon').empty();
 			
 			var y1 = time.clone().add(-1).years().toString('yyyy');
 			var y2 = time.clone().toString('yyyy');
+			var y3 = time.clone().add(1).years().toString('yyyy');
+			var T = 'Total';
 			var month = [];
 			for (var i = 0; i < 12; i++) {
 				month[i] = Date.parse(y2 + '-' + ipmon.pad(i+1) + '-01','yyyy-MM-dd').toString('MMM');
 			};
-			var y3 = time.clone().add(1).years().toString('yyyy');
-			var T = 'Total';
 			
 			var content = '' + 
-			// '<div class="years">' +
-				'<a class="year">' + y1 + '</a>' +
-				// '<div class="year">' + 
-					'<a class="year">' + y2 + '</a>' +
-					// '<div class="month">' + 
-						'<a class="month">' + month[0] + '</a>' +
-						'<a class="month">' + month[1] + '</a>' +
-						'<a class="month">' + month[2] + '</a>' +
-						'<a class="month">' + month[3] + '</a>' +
-						'<a class="month">' + month[4] + '</a>' +
-						'<a class="month">' + month[5] + '</a>' +
-						'<a class="month">' + month[6] + '</a>' +
-						'<a class="month">' + month[7] + '</a>' +
-						'<a class="month">' + month[8] + '</a>' +
-						'<a class="month">' + month[9] + '</a>' +
-						'<a class="month">' + month[10] + '</a>' +
-						'<a class="month">' + month[11] + '</a>' +
-					// '</div>' +
-				// '</div>' +
-				'<a class="year">' + y3 + '</a>' +
-			// '</div>' +
+			'<a class="year">' + y1 + '</a>' +
+			'<a class="year">' + y2 + '</a>' +
+			'<a class="month">' + month[0] + '</a>' +
+			'<a class="month">' + month[1] + '</a>' +
+			'<a class="month">' + month[2] + '</a>' +
+			'<a class="month">' + month[3] + '</a>' +
+			'<a class="month">' + month[4] + '</a>' +
+			'<a class="month">' + month[5] + '</a>' +
+			'<a class="month">' + month[6] + '</a>' +
+			'<a class="month">' + month[7] + '</a>' +
+			'<a class="month">' + month[8] + '</a>' +
+			'<a class="month">' + month[9] + '</a>' +
+			'<a class="month">' + month[10] + '</a>' +
+			'<a class="month">' + month[11] + '</a>' +
+			'<a class="year">' + y3 + '</a>' +
 			'<a class="total">' + T + '</a>';
-			
-			
-			
-			
-			
-			nav.append(content);
+
+			$('nav').html(content);
 			
 			$('a.year').on('click',function() {
 			
-				ipmon.monthly(this.text);
+				ipmon.year(this.text);
 				return false;
 			
 			});
 			$('a.month').on('click', function() {
-			
-				var input = Date.parse(y2 + '-' + this.text + '-01', 'yyyy-MMM-dd').toString('yyyy-MM');
+
+                var input = Date.parse(y2 + '-' + this.text + '-01', 'yyyy-MMM-dd').toString('yyyy-MM');
 				
-				ipmon.daily(input);
+				ipmon.month(input);
 				return false;
 			
 			});
@@ -564,11 +1243,9 @@
 			
 			});
 		
-		};
-
-
-		ipmon.daily();
+		}
 		
+		ipmon.month();
 
 	</script>
 	
